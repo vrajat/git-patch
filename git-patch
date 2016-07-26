@@ -1,0 +1,111 @@
+#!/usr/local/bin/python
+import argparse
+import os
+import logging
+import re
+import subprocess
+import sys
+import yaml
+
+
+def _log_init():
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    root.addHandler(ch)
+
+
+def _head(branch):
+    output = subprocess.Popen(['git', 'show-ref', 'refs/heads/%s' % branch], stdout=subprocess.PIPE).communicate()[0]
+    return output.split(' ')[0]
+
+
+def init(args, patches):
+    config = {
+        "tracking": {
+            "branch": args.branch,
+            "commit-id": _head(args.branch)
+        },
+        "sections": [
+            {
+                "name": "unclassified",
+                "commits": []
+            }
+        ],
+    }
+    if not os.path.exists(".patch"):
+        os.makedirs(".patch")
+
+    with open('.patch/config.yml', 'w') as outfile:
+        outfile.write(yaml.dump(config, default_flow_style=False))
+
+
+def generate(args, patches):
+    current = patches["tracking"]["commit-id"]
+    head = _head(patches["tracking"]["branch"])
+    logging.debug("Current: %s, Head: %s" % (current, head))
+
+    generated = subprocess.Popen(['git', 'format-patch', '%s..%s' % (current, head), "-o", ".patch"],
+                                 stdout=subprocess.PIPE).communicate()[0]
+
+    commit_list = generated.splitlines(False)
+    logging.info("%d commits processed." % len(commit_list))
+    patches["tracking"]["commit-id"] = head
+    for p in commit_list:
+        patches["sections"][0]["commits"].append(os.path.basename(p))
+
+    with open('.patch/config.yml', 'w') as outfile:
+        outfile.write(yaml.dump(patches, default_flow_style=False))
+
+
+def list_patches(args, patches):
+    print "\n".join([s["name"] for s in patches["sections"]])
+
+
+def patch_commits(args, patches):
+    print "\n".join(args.section["commits"])
+
+
+def patch_apply(args, patches):
+    number = re.compile("^\d+-")
+    for commit in args.section["commits"]:
+        logging.info("Processing: %s " % commit)
+        subject = number.sub("", commit).replace(".patch", "").replace("-", " ")
+        subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+        subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
+
+_log_init()
+parser = argparse.ArgumentParser()
+sub_parsers = parser.add_subparsers()
+
+init_parser = sub_parsers.add_parser("init", help="Initialize branch which will be patched")
+init_parser.add_argument("-b", "--branch", required=True, help="Development branch")
+init_parser.set_defaults(func=init)
+
+list_parser = sub_parsers.add_parser("list", help="List all patches")
+list_parser.set_defaults(func=list_patches)
+
+generate_parser = sub_parsers.add_parser("generate", help="Generate patches from tracked branch")
+generate_parser.set_defaults(func=generate)
+
+patches = None
+
+if os.path.exists(".patch/config.yml"):
+    with open(".patch/config.yml") as yml:
+        patches = yaml.safe_load(yml)
+
+    for s in patches["sections"]:
+        p = sub_parsers.add_parser(s["name"], help="Operations for %s" % s["name"])
+        sub_sub = p.add_subparsers()
+        sub_list = sub_sub.add_parser("list", help="List all commits")
+        sub_list.set_defaults(func=patch_commits, section=s)
+
+        sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
+        sub_apply.set_defaults(func=patch_apply, section=s)
+
+argument = parser.parse_args()
+argument.func(argument, patches)
