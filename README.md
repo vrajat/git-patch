@@ -54,3 +54,20 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     git checkout oss-master
     git patch unclassified apply
     
+## Edit Patches
+
+
+    # Prepare a feature branch to edit the patch
+    git checkout oss-master
+    git checkout -b feature_branch
+    git fetch upstream
+    git rebase upstream/master
+    
+    #Apply patches
+    git patch unclassified edit --patch <patch-file>
+    
+    # Edit patch. All changes should be cached. Do not commit any changes. 
+    git patch unclassified edit --commit
+    
+    # If all steps are successful, a modified patch is available. 
+    # Copy the patch to oss-master and commit it. 

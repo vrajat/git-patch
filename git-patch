@@ -4,6 +4,7 @@ import os
 import logging
 import re
 import subprocess
+from subprocess import CalledProcessError
 import sys
 import yaml
 
@@ -78,6 +79,55 @@ def patch_apply(args, patches):
         subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
         subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
 
+
+def edit(args, patches):
+    def begin_edit():
+        subject_re = subject_re = re.compile("Subject: \[PATCH\] (.*)^\-\-\-\n", re.S | re.M)
+        for commit in args.section["commits"]:
+            logging.info("Processing: %s " % commit)
+            with open('.patch/%s' % commit, 'r') as commit_file:
+                data = commit_file.read()
+            subject = subject_re.search(data).group(1)
+            logging.info(subject)
+            try:
+                subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+            except CalledProcessError as err:
+                if commit != args.patch:
+                    raise err
+            if commit == args.patch:
+                break
+            subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
+
+        head = subprocess.Popen(['git', 'rev-parse', 'HEAD'],
+                                 stdout=subprocess.PIPE).communicate()[0].strip()
+        # Write metadata to .patch/begin_edit.yml
+        metadata = {
+            "patch": args.patch,
+            "head": head,
+            "subject": subject
+        }
+        with open('.patch/metadata_edit.yml', 'w') as outfile:
+            outfile.write(yaml.dump(metadata, default_flow_style=False))
+
+    def complete_edit():
+        with open(".patch/metadata_edit.yml") as yml:
+            metadata = yaml.safe_load(yml)
+        logging.debug(metadata)
+        subprocess.check_call(["git", "commit", "-m", metadata['subject']])
+        generated = subprocess.Popen(['git', 'format-patch', '%s..HEAD' % metadata['head'], "-o", ".patch"],
+                                 stdout=subprocess.PIPE).communicate()[0]
+        logging.debug(generated)
+        commit_list = generated.splitlines()
+        assert(len(commit_list) == 1)
+        logging.info("Move %s to .patch/%s" % (commit_list[0], metadata['patch']))
+        os.rename("%s" % commit_list[0], ".patch/%s" % metadata['patch'])
+        os.unlink(".patch/metadata_edit.yml")
+
+    if args.patch is not None:
+        begin_edit()
+    else:
+        complete_edit()
+
 _log_init()
 parser = argparse.ArgumentParser()
 sub_parsers = parser.add_subparsers()
@@ -106,6 +156,12 @@ if os.path.exists(".patch/config.yml"):
 
         sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
         sub_apply.set_defaults(func=patch_apply, section=s)
+
+        edit_parser = sub_sub.add_parser("edit", help="Begin editing a patch")
+        edit_group = edit_parser.add_mutually_exclusive_group(required=True)
+        edit_group.add_argument("-p", "--patch", help="File name of patch")
+        edit_group.add_argument("-c", "--commit", action="store_true", help="Commit the edit")
+        edit_parser.set_defaults(func=edit, section=s)
 
 argument = parser.parse_args()
 argument.func(argument, patches)
