@@ -8,6 +8,9 @@ from subprocess import CalledProcessError
 import sys
 import yaml
 
+_current_version = 1
+_supported_versions = [1]
+
 
 def _log_init():
     root = logging.getLogger()
@@ -25,6 +28,11 @@ def _head(branch):
     return output.split(' ')[0]
 
 
+def _write_config(patches):
+    with open('.patch/config.yml', 'w') as outfile:
+        outfile.write(yaml.dump(patches, default_flow_style=False))
+
+
 def init(args, patches):
     config = {
         "tracking": {
@@ -37,12 +45,12 @@ def init(args, patches):
                 "commits": []
             }
         ],
+        "version": _current_version
     }
     if not os.path.exists(".patch"):
         os.makedirs(".patch")
 
-    with open('.patch/config.yml', 'w') as outfile:
-        outfile.write(yaml.dump(config, default_flow_style=False))
+    _write_config(config)
 
 
 def generate(args, patches):
@@ -56,22 +64,67 @@ def generate(args, patches):
     commit_list = generated.splitlines(False)
     logging.info("%d commits processed." % len(commit_list))
     patches["tracking"]["commit-id"] = head
-    for p in commit_list:
-        patches["sections"][0]["commits"].append(os.path.basename(p))
+    unclassified = None
+    for p in patches["sections"]:
+        if p["name"] == "unclassified":
+            unclassified = p
+            break
 
-    with open('.patch/config.yml', 'w') as outfile:
-        outfile.write(yaml.dump(patches, default_flow_style=False))
+    for p in commit_list:
+        unclassified["commits"].append(os.path.basename(p))
+
+    _write_config(patches)
 
 
 def list_patches(args, patches):
     print "\n".join([s["name"] for s in patches["sections"]])
 
 
+def create_section(args, patches):
+    patches["sections"].append({
+        "name": args.name,
+        "commits": []
+    })
+
+    _write_config(patches)
+
+
+def move_patch(args, patches):
+    # Find the patch
+    found = False
+    for section in patches["sections"]:
+        if args.patch in section["commits"]:
+            found = True
+            section["commits"].remove(args.patch)
+            break
+
+    if found:
+        found_section = False
+        for section in patches["sections"]:
+            if section["name"] == args.to:
+                section["commits"].append(args.patch)
+                found_section = True
+                break
+        if not found_section:
+            raise Exception("Section `%s` not found" % args.to)
+    else:
+        raise Exception("Patch `%s` not found" % args.patch)
+
+    _write_config(patches)
+
+
+def patch_apply(args, patches):
+    for section in patches["sections"]:
+        d = vars(args)
+        d['section'] = section
+        section_apply(args, patches)
+
+
 def patch_commits(args, patches):
     print "\n".join(args.section["commits"])
 
 
-def patch_apply(args, patches):
+def section_apply(args, patches):
     number = re.compile("^\d+-")
     for commit in args.section["commits"]:
         logging.info("Processing: %s " % commit)
@@ -82,8 +135,17 @@ def patch_apply(args, patches):
 
 def edit(args, patches):
     def begin_edit():
-        subject_re = subject_re = re.compile("Subject: \[PATCH\] (.*)^\-\-\-\n", re.S | re.M)
-        for commit in args.section["commits"]:
+        subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
+        edit_section = args.section
+        for section in patches["sections"]:
+            if section["name"] == edit_section["name"]:
+                break
+            logging.info("Processing section %s" % section["name"])
+            d = vars(args)
+            d['section'] = section
+            section_apply(args, patches)
+
+        for commit in edit_section["commits"]:
             logging.info("Processing: %s " % commit)
             with open('.patch/%s' % commit, 'r') as commit_file:
                 data = commit_file.read()
@@ -128,40 +190,60 @@ def edit(args, patches):
     else:
         complete_edit()
 
-_log_init()
-parser = argparse.ArgumentParser()
-sub_parsers = parser.add_subparsers()
 
-init_parser = sub_parsers.add_parser("init", help="Initialize branch which will be patched")
-init_parser.add_argument("-b", "--branch", required=True, help="Development branch")
-init_parser.set_defaults(func=init)
+def main():
+    _log_init()
+    parser = argparse.ArgumentParser()
+    sub_parsers = parser.add_subparsers()
 
-list_parser = sub_parsers.add_parser("list", help="List all patches")
-list_parser.set_defaults(func=list_patches)
+    init_parser = sub_parsers.add_parser("init", help="Initialize branch which will be patched")
+    init_parser.add_argument("-b", "--branch", required=True, help="Development branch")
+    init_parser.set_defaults(func=init)
 
-generate_parser = sub_parsers.add_parser("generate", help="Generate patches from tracked branch")
-generate_parser.set_defaults(func=generate)
+    list_parser = sub_parsers.add_parser("list", help="List all patches")
+    list_parser.set_defaults(func=list_patches)
 
-patches = None
+    generate_parser = sub_parsers.add_parser("generate", help="Generate patches from tracked branch")
+    generate_parser.set_defaults(func=generate)
 
-if os.path.exists(".patch/config.yml"):
-    with open(".patch/config.yml") as yml:
-        patches = yaml.safe_load(yml)
+    create_section_parser = sub_parsers.add_parser("create-section", help="Create a new patch section")
+    create_section_parser.add_argument("-n", "--name", required=True, help="Name of section")
+    create_section_parser.set_defaults(func=create_section)
 
-    for s in patches["sections"]:
-        p = sub_parsers.add_parser(s["name"], help="Operations for %s" % s["name"])
-        sub_sub = p.add_subparsers()
-        sub_list = sub_sub.add_parser("list", help="List all commits")
-        sub_list.set_defaults(func=patch_commits, section=s)
+    move_patch_parser = sub_parsers.add_parser("move-patch", help="Move patch to a new section")
+    move_patch_parser.add_argument("-p", "--patch", required=True, help="File name of patch")
+    move_patch_parser.add_argument("-t", "--to", required=True, help="Name of destination section")
+    move_patch_parser.set_defaults(func=move_patch)
 
-        sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
-        sub_apply.set_defaults(func=patch_apply, section=s)
+    patch_apply_parser = sub_parsers.add_parser("apply", help="Apply all patch")
+    patch_apply_parser.set_defaults(func=patch_apply)
 
-        edit_parser = sub_sub.add_parser("edit", help="Begin editing a patch")
-        edit_group = edit_parser.add_mutually_exclusive_group(required=True)
-        edit_group.add_argument("-p", "--patch", help="File name of patch")
-        edit_group.add_argument("-c", "--commit", action="store_true", help="Commit the edit")
-        edit_parser.set_defaults(func=edit, section=s)
+    patches = None
 
-argument = parser.parse_args()
-argument.func(argument, patches)
+    if os.path.exists(".patch/config.yml"):
+        with open(".patch/config.yml") as yml:
+            patches = yaml.safe_load(yml)
+
+        if 'version' not in patches:
+            patches['version'] = _current_version
+
+        for s in patches["sections"]:
+            p = sub_parsers.add_parser(s["name"], help="Operations for %s" % s["name"])
+            sub_sub = p.add_subparsers()
+            sub_list = sub_sub.add_parser("list", help="List all commits")
+            sub_list.set_defaults(func=patch_commits, section=s)
+
+            sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
+            sub_apply.set_defaults(func=section_apply, section=s)
+
+            edit_parser = sub_sub.add_parser("edit", help="Begin editing a patch")
+            edit_group = edit_parser.add_mutually_exclusive_group(required=True)
+            edit_group.add_argument("-p", "--patch", help="File name of patch")
+            edit_group.add_argument("-c", "--commit", action="store_true", help="Commit the edit")
+            edit_parser.set_defaults(func=edit, section=s)
+
+    argument = parser.parse_args()
+    argument.func(argument, patches)
+
+if __name__ == "__main__":
+    main()
