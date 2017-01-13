@@ -154,6 +154,7 @@ def edit(args, patches):
             try:
                 subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
             except CalledProcessError as err:
+                logging.error("%s failed to apply" % commit)
                 if commit != args.patch:
                     raise err
             if commit == args.patch:
