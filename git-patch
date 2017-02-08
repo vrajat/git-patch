@@ -53,6 +53,16 @@ def init(args, patches):
     _write_config(config)
 
 
+def create_branch(args, patches):
+    try:
+        subprocess.check_call(["git", "branch", "-D", args.name])
+    except CalledProcessError as err:
+        logging.debug("Branch %s does not exist" % args.name)
+    subprocess.check_call(["git", "checkout", "-b", args.name])
+    subprocess.check_call(["git", "rebase", args.remote])
+    logging.info("Create and rebased branch %s" % args.name)
+
+
 def generate(args, patches):
     current = patches["tracking"]["commit-id"]
     head = _head(patches["tracking"]["branch"])
@@ -200,6 +210,11 @@ def main():
     init_parser = sub_parsers.add_parser("init", help="Initialize branch which will be patched")
     init_parser.add_argument("-b", "--branch", required=True, help="Development branch")
     init_parser.set_defaults(func=init)
+
+    branch_parser = sub_parsers.add_parser("create-branch", help="Create a new development branch")
+    branch_parser.add_argument("-n", "--name", help="Name of branch", default="git_patch")
+    branch_parser.add_argument("-r", "--remote", help="Name of Git Remote", default="upstream/master")
+    branch_parser.set_defaults(func=create_branch)
 
     list_parser = sub_parsers.add_parser("list", help="List all patches")
     list_parser.set_defaults(func=list_patches)

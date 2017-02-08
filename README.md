@@ -42,11 +42,16 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     git commit -m "Add patch configuration"
     git push -u origin oss-master
     
-    
+
 ## Generate patches
 
     git checkout oss-master
     git patch generate
+    
+## Create a development branch    
+
+    # Creates a branch `git_patch` and rebases it upstream/master
+    git patch create-branch
     
 ## Apply patches
 
