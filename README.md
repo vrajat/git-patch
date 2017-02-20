@@ -27,10 +27,9 @@ They created `oss-master` which is a mirror of `master` in prestodb`.
 git-patch is used to manage patches and apply them on oss-master to test compatibility.
 
 ## Install
-    cd ~
-    git clone https://github.com/vrajat/git-patch.git
-    export PATH=$PATH:~/git-patch/git-patch
-    
+    pip install git-patch
+        
+        
 ## Initialize
 
     git remote add upstream <git url for upstream project>
