@@ -12,7 +12,7 @@ with open(path.join(here, 'README.md')) as f:
 
 setup(
     name='git_patch',
-    version='1.0.0',
+    version='1.0.2',
     description='Patch management for open source fork projects',
 
     author='Rajat Venkatesh',
