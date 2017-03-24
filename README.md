@@ -30,10 +30,13 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     pip install git-patch
         
         
-## Initialize
-
+## Setup Local Repository
+    
     git remote add upstream <git url for upstream project>
     git fetch upstream
+
+## Initialize Repository for patches
+
     git checkout upstream/master
     git checkout -b oss-master
     git patch init -b <development branch>
@@ -54,18 +57,13 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     
 ## Apply patches
 
-
     git checkout oss-master
     git patch apply
     
 ## Edit Patches
 
-
-    # Prepare a feature branch to edit the patch
-    git checkout oss-master
-    git checkout -b feature_branch
-    git fetch upstream
-    git rebase upstream/master
+    # Create a development branch
+    git patch create-branch
     
     #Apply patches
     git patch <section> edit --patch <patch-file>
@@ -77,3 +75,27 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     
     # If all steps are successful, a modified patch is available. 
     # Copy the patch to oss-master and commit it. 
+    git checkout oss-master
+    git add .patch/<patch file name>
+    git commit
+    
+## Squash commits in a section
+Commits in a section can be squashed to a single commit. This is useful when there is no 
+advantage in maintaining separate patches for a single feature or section. For e.g. lets say
+a feature has the following patches:
+
+- 0001-new-Add-new-feature.patch
+- 0001-fix-Fix-a-bug-in-new-feature.patch
+- 0001-new-redesign-internal-data-structures
+
+Once this feature has stabilized, these patches can be squashed to a single one.
+
+
+    # Create a development branch
+    git patch create-branch
+    
+    # Squash commits in a section.
+    # Commit message from the specified patch file is copied.
+    git patch <section> squash --patch <patch file>
+    
+    

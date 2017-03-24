@@ -59,7 +59,7 @@ def create_branch(args, patches):
     except CalledProcessError as err:
         logging.debug("Branch %s does not exist" % args.name)
     subprocess.check_call(["git", "checkout", "-b", args.name])
-    subprocess.check_call(["git", "fetch", "upstream"])
+#    subprocess.check_call(["git", "fetch", "upstream"])
     subprocess.check_call(["git", "rebase", args.remote])
     logging.info("Create and rebased branch %s" % args.name)
 
@@ -142,6 +142,44 @@ def section_apply(args, patches):
         subject = number.sub("", commit).replace(".patch", "").replace("-", " ")
         subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
         subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
+
+
+def squash(args, patches):
+    subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
+    edit_section = args.section
+    for section in patches["sections"]:
+        if section["name"] == edit_section["name"]:
+            break
+        logging.info("Processing section %s" % section["name"])
+        d = vars(args)
+        d['section'] = section
+        section_apply(args, patches)
+
+    head = subprocess.Popen(['git', 'rev-parse', 'HEAD'],
+                            stdout=subprocess.PIPE).communicate()[0].strip()
+
+    subject = None
+    for commit in edit_section["commits"]:
+        logging.info("Processing: %s " % commit)
+        with open('.patch/%s' % commit, 'r') as commit_file:
+            data = commit_file.read()
+        if commit == args.patch:
+            subject = subject_re.search(data).group(1)
+            logging.info(subject)
+        try:
+            subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+        except CalledProcessError as err:
+            logging.error("%s failed to apply" % commit)
+            raise err
+
+    subprocess.check_call(["git", "commit", "-m", subject])
+    generated = subprocess.Popen(['git', 'format-patch', '%s..HEAD' % head, "-o", ".patch"],
+                                 stdout=subprocess.PIPE).communicate()[0]
+    logging.debug(generated)
+    commit_list = generated.splitlines()
+    assert(len(commit_list) == 1)
+    edit_section["commits"] = commit_list
+    _write_config(patches)
 
 
 def edit(args, patches):
@@ -258,6 +296,10 @@ def main():
             edit_group.add_argument("-p", "--patch", help="File name of patch")
             edit_group.add_argument("-c", "--commit", action="store_true", help="Commit the edit")
             edit_parser.set_defaults(func=edit, section=s)
+
+            squash_parser = sub_sub.add_parser("squash", help="Begin editing a patch")
+            squash_parser.add_argument("-p", "--patch", help="File name of patch", required=True)
+            squash_parser.set_defaults(func=squash, section=s)
 
     argument = parser.parse_args()
     argument.func(argument, patches)
