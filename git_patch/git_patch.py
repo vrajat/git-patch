@@ -59,7 +59,7 @@ def create_branch(args, patches):
     except CalledProcessError as err:
         logging.debug("Branch %s does not exist" % args.name)
     subprocess.check_call(["git", "checkout", "-b", args.name])
-#    subprocess.check_call(["git", "fetch", "upstream"])
+    subprocess.check_call(["git", "fetch", "upstream"])
     subprocess.check_call(["git", "rebase", args.remote])
     logging.info("Create and rebased branch %s" % args.name)
 
