@@ -12,6 +12,10 @@ _current_version = 1
 _supported_versions = [1]
 
 
+class UserAbortedException(Exception):
+    pass
+
+
 def _log_init():
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
@@ -135,12 +139,38 @@ def patch_commits(args, patches):
     print "\n".join(args.section["commits"])
 
 
+def _generate_edit_metadata(commit, subject):
+    head = subprocess.Popen(['git', 'rev-parse', 'HEAD'],
+                            stdout=subprocess.PIPE).communicate()[0].strip()
+    # Write metadata to .patch/metadata_edit.yml
+    metadata = {
+        "patch": commit,
+        "head": head,
+        "subject": subject
+    }
+
+    with open('.patch/metadata_edit.yml', 'w') as outfile:
+        outfile.write(yaml.dump(metadata, default_flow_style=False))
+    logging.info("Created metadata_edit file for %s" % commit)
+
+
 def section_apply(args, patches):
-    number = re.compile("^\d+-")
+    subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
     for commit in args.section["commits"]:
         logging.info("Processing: %s " % commit)
-        subject = number.sub("", commit).replace(".patch", "").replace("-", " ")
-        subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+        with open('.patch/%s' % commit, 'r') as commit_file:
+            data = commit_file.read()
+        subject = subject_re.search(data).group(1)
+        logging.info(subject)
+        try:
+            subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+            if commit == os.path.basename(args.patch):
+                _generate_edit_metadata(commit, subject)
+                raise UserAbortedException("User aborted at %s " % commit)
+        except CalledProcessError as err:
+            logging.error("%s failed to apply" % commit)
+            _generate_edit_metadata(commit, subject)
+            raise err
         subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
 
 
@@ -182,63 +212,19 @@ def squash(args, patches):
     _write_config(patches)
 
 
-def edit(args, patches):
-    def begin_edit():
-        subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
-        edit_section = args.section
-        for section in patches["sections"]:
-            if section["name"] == edit_section["name"]:
-                break
-            logging.info("Processing section %s" % section["name"])
-            d = vars(args)
-            d['section'] = section
-            section_apply(args, patches)
-
-        for commit in edit_section["commits"]:
-            logging.info("Processing: %s " % commit)
-            with open('.patch/%s' % commit, 'r') as commit_file:
-                data = commit_file.read()
-            subject = subject_re.search(data).group(1)
-            logging.info(subject)
-            try:
-                subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
-            except CalledProcessError as err:
-                logging.error("%s failed to apply" % commit)
-                if commit != args.patch:
-                    raise err
-            if commit == args.patch:
-                break
-            subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
-
-        head = subprocess.Popen(['git', 'rev-parse', 'HEAD'],
-                                 stdout=subprocess.PIPE).communicate()[0].strip()
-        # Write metadata to .patch/begin_edit.yml
-        metadata = {
-            "patch": args.patch,
-            "head": head,
-            "subject": subject
-        }
-        with open('.patch/metadata_edit.yml', 'w') as outfile:
-            outfile.write(yaml.dump(metadata, default_flow_style=False))
-
-    def complete_edit():
-        with open(".patch/metadata_edit.yml") as yml:
-            metadata = yaml.safe_load(yml)
-        logging.debug(metadata)
-        subprocess.check_call(["git", "commit", "-m", metadata['subject']])
-        generated = subprocess.Popen(['git', 'format-patch', '%s..HEAD' % metadata['head'], "-o", ".patch"],
+def fix(args, patches):
+    with open(".patch/metadata_edit.yml") as yml:
+        metadata = yaml.safe_load(yml)
+    logging.debug(metadata)
+    subprocess.check_call(["git", "commit", "-m", metadata['subject']])
+    generated = subprocess.Popen(['git', 'format-patch', '%s..HEAD' % metadata['head'], "-o", ".patch"],
                                  stdout=subprocess.PIPE).communicate()[0]
-        logging.debug(generated)
-        commit_list = generated.splitlines()
-        assert(len(commit_list) == 1)
-        logging.info("Move %s to .patch/%s" % (commit_list[0], metadata['patch']))
-        os.rename("%s" % commit_list[0], ".patch/%s" % metadata['patch'])
-        os.unlink(".patch/metadata_edit.yml")
-
-    if args.patch is not None:
-        begin_edit()
-    else:
-        complete_edit()
+    logging.debug(generated)
+    commit_list = generated.splitlines()
+    assert(len(commit_list) == 1)
+    logging.info("Move %s to .patch/%s" % (commit_list[0], metadata['patch']))
+    os.rename("%s" % commit_list[0], ".patch/%s" % metadata['patch'])
+    os.unlink(".patch/metadata_edit.yml")
 
 
 def main():
@@ -271,7 +257,11 @@ def main():
     move_patch_parser.set_defaults(func=move_patch)
 
     patch_apply_parser = sub_parsers.add_parser("apply", help="Apply all patch")
+    patch_apply_parser.add_argument("-p", "--patch", help="File name of patch to stop")
     patch_apply_parser.set_defaults(func=patch_apply)
+
+    fix_parser = sub_parsers.add_parser("fix-patch", help="Begin editing a patch")
+    fix_parser.set_defaults(func=fix)
 
     patches = None
 
@@ -289,13 +279,8 @@ def main():
             sub_list.set_defaults(func=patch_commits, section=s)
 
             sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
+            sub_apply.add_argument("-p", "--patch", help="File name of patch to stop")
             sub_apply.set_defaults(func=section_apply, section=s)
-
-            edit_parser = sub_sub.add_parser("edit", help="Begin editing a patch")
-            edit_group = edit_parser.add_mutually_exclusive_group(required=True)
-            edit_group.add_argument("-p", "--patch", help="File name of patch")
-            edit_group.add_argument("-c", "--commit", action="store_true", help="Commit the edit")
-            edit_parser.set_defaults(func=edit, section=s)
 
             squash_parser = sub_sub.add_parser("squash", help="Begin editing a patch")
             squash_parser.add_argument("-p", "--patch", help="File name of patch", required=True)

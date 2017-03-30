@@ -60,19 +60,31 @@ git-patch is used to manage patches and apply them on oss-master to test compati
     git checkout oss-master
     git patch apply
     
-## Edit Patches
+## Fix Conflicts
+If a patch has conflicts, `apply` command will fail. The conflicts have to be resolved
+and the patch has to be regenerated using the following commands:
 
-    # Create a development branch
-    git patch create-branch
-    
-    #Apply patches
-    git patch <section> edit --patch <patch-file>
-    
-    # Edit patch. 
+    # Fix conflicts
     # IMPORTANT: All changes should be cached. 
     # IMPORTANT Do not commit any changes. 
-    git patch <section> edit --commit
+    git patch fix-patch
+        
+    # If all steps are successful, a modified patch is available. 
+    # Copy the patch to oss-master and commit it. 
+    git checkout oss-master
+    git add .patch/<patch file name>
+    git commit
+
+## Edit Patches
+To edit a patch, use `apply` command will fail. Make edits and regenerate the patch. 
+
+    git patch apply --patch <patch filename | path to patch>
     
+    # Make edits
+    # IMPORTANT: All changes should be cached. 
+    # IMPORTANT Do not commit any changes. 
+    git patch fix-patch
+        
     # If all steps are successful, a modified patch is available. 
     # Copy the patch to oss-master and commit it. 
     git checkout oss-master
