@@ -164,7 +164,7 @@ def section_apply(args, patches):
         logging.info(subject)
         try:
             subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
-            if commit == os.path.basename(args.patch):
+            if args.patch is not None and commit == os.path.basename(args.patch):
                 _generate_edit_metadata(commit, subject)
                 raise UserAbortedException("User aborted at %s " % commit)
         except CalledProcessError as err:
