@@ -17,14 +17,17 @@ The requirements of a patch management system are:
 3. Patch management functions.  
    Provide functions to edit, combine and remove patches.  
    
-For e.g. developers at Qubole, use the following model to develop on Facebook Presto.
+For e.g. developers at Qubole, use the following model to develop on Apache Calcite.
 
-PrestoDb has a master branch and tags for each release.
-Qubole developers create a branch from tag `0.150` - `q-presto-0.150` which is the development branch.
-All feature branches are merged to `q-presto-0.150`. 
-Qubole developers want to continously test custom features on the master branch to ensure compatibility in future releases.
-They created `oss-master` which is a mirror of `master` in prestodb`.
+Apache Calcite has a master branch and tags (as well as branches) for each release.  
+
+- Qubole developers create a branch from tag `calcite-1.12.0` - `q-calcite-12` which is the development branch. All feature branches are merged to `q-calcite-12`.  
+- Qubole developers want to continously test custom features on the master branch to ensure compatibility in future releases.  
+- They created `oss-master` which is a mirror of `master` in apache/calcite`.
+
 git-patch is used to manage patches and apply them on oss-master to test compatibility.
+Check [qubole/calcite](https://github.com/qubole/incubator-calcite/tree/oss-master/.patch) for an example.
+
 
 ## Install
     pip install git-patch

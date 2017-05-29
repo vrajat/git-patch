@@ -63,7 +63,8 @@ def create_branch(args, patches):
     except CalledProcessError as err:
         logging.debug("Branch %s does not exist" % args.name)
     subprocess.check_call(["git", "checkout", "-b", args.name])
-    subprocess.check_call(["git", "fetch", "upstream"])
+    if args.fetch:
+        subprocess.check_call(["git", "fetch", "upstream"])
     subprocess.check_call(["git", "rebase", args.remote])
     logging.info("Create and rebased branch %s" % args.name)
 
@@ -156,6 +157,9 @@ def _generate_edit_metadata(commit, subject):
 
 def section_apply(args, patches):
     subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
+    algo = "-3"
+    if args.reject:
+        algo = "--reject"
     for commit in args.section["commits"]:
         logging.info("Processing: %s " % commit)
         with open('.patch/%s' % commit, 'r') as commit_file:
@@ -163,7 +167,7 @@ def section_apply(args, patches):
         subject = subject_re.search(data).group(1)
         logging.info(subject)
         try:
-            subprocess.check_call(["git", "apply", "-3", ".patch/%s" % commit])
+            subprocess.check_call(["git", "apply", algo, ".patch/%s" % commit])
             if args.patch is not None and commit == os.path.basename(args.patch):
                 _generate_edit_metadata(commit, subject)
                 raise UserAbortedException("User aborted at %s " % commit)
@@ -171,6 +175,8 @@ def section_apply(args, patches):
             logging.error("%s failed to apply" % commit)
             _generate_edit_metadata(commit, subject)
             raise err
+        if args.reject:
+            subprocess.check_call(["git", "add", "."])
         subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
 
 
@@ -239,7 +245,10 @@ def main():
     branch_parser = sub_parsers.add_parser("create-branch", help="Create a new development branch")
     branch_parser.add_argument("-n", "--name", help="Name of branch", default="git_patch")
     branch_parser.add_argument("-r", "--remote", help="Name of Git Remote", default="upstream/master")
-    branch_parser.set_defaults(func=create_branch)
+    fetch_parser = branch_parser.add_mutually_exclusive_group(required=False)
+    fetch_parser.add_argument("--no-fetch", dest='fetch', help="Do not fetch from upstream", action='store_false')
+    fetch_parser.add_argument("--fetch", dest='fetch', help="Fetch from upstream", action='store_true')
+    branch_parser.set_defaults(func=create_branch, fetch=True)
 
     list_parser = sub_parsers.add_parser("list", help="List all patches")
     list_parser.set_defaults(func=list_patches)
@@ -258,6 +267,8 @@ def main():
 
     patch_apply_parser = sub_parsers.add_parser("apply", help="Apply all patch")
     patch_apply_parser.add_argument("-p", "--patch", help="File name of patch to stop")
+    patch_apply_parser.add_argument("--reject", help="Patches are applied using 3-way. Use reject instead",
+                                    action='store_true')
     patch_apply_parser.set_defaults(func=patch_apply)
 
     fix_parser = sub_parsers.add_parser("fix-patch", help="Begin editing a patch")
@@ -280,6 +291,8 @@ def main():
 
             sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
             sub_apply.add_argument("-p", "--patch", help="File name of patch to stop")
+            sub_apply.add_argument("--reject", help="Patches are applied using 3-way. Use reject instead",
+                                   action='store_true')
             sub_apply.set_defaults(func=section_apply, section=s)
 
             squash_parser = sub_sub.add_parser("squash", help="Begin editing a patch")
