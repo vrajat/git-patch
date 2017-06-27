@@ -133,8 +133,8 @@ def patch_apply(args, patches):
     for section in patches["sections"]:
         d = vars(args)
         d['section'] = section
-        section_apply(args, patches)
-
+        if section_apply(args, patches):
+            args.from_patch = None
 
 def patch_commits(args, patches):
     print "\n".join(args.section["commits"])
@@ -154,13 +154,32 @@ def _generate_edit_metadata(commit, subject):
         outfile.write(yaml.dump(metadata, default_flow_style=False))
     logging.info("Created metadata_edit file for %s" % commit)
 
-
+"""
+" If from_patch is set in args, then no patch will be applied until 
+" the patch named by from_patch is found
+"
+" Returns True if either
+"   1. Patch passed through --from-patch is found in this section
+"   2. If --from-patch was not set
+"""
 def section_apply(args, patches):
     subject_re = re.compile("Subject: \[PATCH.*\] (.*)^\-\-\-\n", re.S | re.M)
     algo = "-3"
     if args.reject:
         algo = "--reject"
+
+    patch_required = False
+    if args.from_patch is None:
+        patch_required = True
+
     for commit in args.section["commits"]:
+        if not patch_required:
+            if commit == os.path.basename(args.from_patch):
+                patch_required = True
+                # from_patch is excluded, fall through to continue
+            logging.info("Skipping: %s " % commit)
+            continue
+
         logging.info("Processing: %s " % commit)
         with open('.patch/%s' % commit, 'r') as commit_file:
             data = commit_file.read()
@@ -178,6 +197,7 @@ def section_apply(args, patches):
         if args.reject:
             subprocess.check_call(["git", "add", "."])
         subprocess.check_call(["git", "commit", "-m", "[Patch] %s" % subject])
+    return patch_required
 
 
 def squash(args, patches):
@@ -267,6 +287,7 @@ def main():
 
     patch_apply_parser = sub_parsers.add_parser("apply", help="Apply all patch")
     patch_apply_parser.add_argument("-p", "--patch", help="File name of patch to stop")
+    patch_apply_parser.add_argument("--from-patch", dest='from_patch', help="Applies patches after the given file")
     patch_apply_parser.add_argument("--reject", help="Patches are applied using 3-way. Use reject instead",
                                     action='store_true')
     patch_apply_parser.set_defaults(func=patch_apply)
@@ -291,6 +312,7 @@ def main():
 
             sub_apply = sub_sub.add_parser("apply", help="Apply a patch")
             sub_apply.add_argument("-p", "--patch", help="File name of patch to stop")
+            sub_apply.add_argument("--from-patch", dest='from_patch', help="Applies patches after the given file")
             sub_apply.add_argument("--reject", help="Patches are applied using 3-way. Use reject instead",
                                    action='store_true')
             sub_apply.set_defaults(func=section_apply, section=s)
