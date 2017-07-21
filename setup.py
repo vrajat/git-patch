@@ -5,14 +5,9 @@ from os import path
 
 here = path.abspath(path.dirname(__file__))
 
-# Get the long description from the README file
-with open(path.join(here, 'README.md')) as f:
-    long_description = f.read()
-
-
 setup(
     name='git_patch',
-    version='2.1.0',
+    version='2.1.1',
     description='Patch management for open source fork projects',
 
     author='Rajat Venkatesh',
