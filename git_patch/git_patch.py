@@ -28,8 +28,8 @@ def _log_init():
 
 
 def _head(branch):
-    output = subprocess.Popen(['git', 'show-ref', 'refs/heads/%s' % branch], stdout=subprocess.PIPE).communicate()[0]
-    return output.split(' ')[0]
+    output = subprocess.Popen(['git', 'ls-remote', '--heads', 'origin', 'refs/heads/%s' % branch], stdout=subprocess.PIPE).communicate()[0]
+    return output.split()[0]
 
 
 def _write_config(patches):
